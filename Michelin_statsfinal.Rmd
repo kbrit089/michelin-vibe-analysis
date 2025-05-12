@@ -1,0 +1,220 @@
+---
+title: "Michelin"
+author: "Kate Phillips"
+date: "2025-03-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+michelin <- read.csv("/Users/katephillips/michelin_my_maps.csv")
+library(dplyr)
+library(purrr)
+library(tidytext)
+library(stringr)
+library(tidyverse)
+library(kableExtra)
+library(ggplot2)
+library(knitr)
+library(stringr)
+library(scales)
+
+```
+
+# Starting off
+```{r}
+
+# Cleaning the dataset so all the words "Star" and "Stars" are removed, so Michelin Star column is now a single number. I also removed "Bib Gourmand" and "Selected Restaurants" from the data set since they're not useful. 
+michelin1 <- michelin %>%
+  mutate(Award = gsub("Stars", "", Award)) %>%
+  mutate(Award = gsub("Star", "", Award)) %>%
+  filter(!Award %in% c("Bib Gourmand", "Selected Restaurants"))
+
+# Changed columns to numeric or factors, to make it usable. 
+michelin1$Award <- as.numeric(as.character(michelin1$Award))
+michelin1$Price <- nchar(michelin1$Price)
+michelin1$Cuisine <- factor(michelin1$Cuisine)
+
+
+```
+
+
+```{r}
+
+# Filtering out unwanted words
+
+unwanted_words <- c("valley", "southern", "traditional", "innovative", "modern", "creative", "cuisine", "contemporary", "seasonal", "country", "cooking", "classic", "international", "fusion", "sharing", "organic", "vegan", "vegetarian", "street", "food", "western", "farm", "to", "table", "and", "regional", "world", "crab", "specialties", "the", "from", "beef", "grills", "home", "influences", "roast", "meats", "marches", "north")
+
+# Combining 2 word cuisines into one word
+
+multi_cuisines <- c(
+  "shun tak" = "shun_tak",
+  "crab specialities" = "crab",
+  "middle eastern" = "middle_eastern",
+  "fugu pufferfish" = "pufferfish",
+  "fugu" = "pufferfish",
+  "duck specialities" = "duck", 
+  "dwaeji-gukbap" = "dwaeji_gukbap",
+  "latin american" = "latin_american",
+  "dim sum" = "dim_sum",
+  "noodles and congee" = "noodles_and_congee",
+  "unagi / freshwater eel" = "unagi_eel",
+  "chao zhou" = "chao_zhou",
+  "north american" = "north_american",
+  "south american" = "south_american",
+  "asian influences" = "asian",
+  "hang zhou" = "hang_zhou"
+)
+
+# Tokenizing each word in Cuisine column, and then removing all unwanted words. Also made sure that any repeat words were removed (korean, korean, contemporary). I chose to only view 4 columns: name, price, award, cuisine. 
+
+
+michelin_1234 <- michelin1 %>%
+  mutate(
+    doc_id = row_number(),
+    Cuisine = str_to_lower(Cuisine)  
+  ) %>%
+  mutate(Cuisine = str_replace_all(Cuisine, multi_cuisines)) %>%
+  unnest_tokens(word, Cuisine) %>%  
+  filter(!word %in% unwanted_words) %>% 
+  distinct(doc_id, word, .keep_all = TRUE) %>% 
+  rename(Cuisine = word)  %>%
+  select(Name, Price, Award, Cuisine)
+
+# Aesthetic table output
+michelin_1234 %>%
+  slice_head(n = 9) %>%
+  kable("html", caption = "Sample of Cleaned Michelin Data") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), 
+                full_width = FALSE, 
+                position = "center")
+
+
+
+```
+
+
+```{r}
+
+
+# Sorting cuisine into categories. Didn't end up using much of this except for "Other" and "Misc" so I'm able to filter them out. I filtered all the "Other" cuisines to find the ones I had missed. I incorporatated them all so now no "Other" cuisines remain.
+
+  michelin_grouping <- michelin_1234 %>%
+  mutate(Cuisine_group = case_when(
+    Cuisine %in% tolower(c("provençal", "Corsican", "Andalusian", "Swiss", "Aosta", "Sardinian", "Venetian", "Lazio", "Romagna", "Lombardian", "Danish", "Galician", "Umbrian", "Norwegian", "Belgian", "Alsatian", "Italian", "French", "British", "Asturian", "Alpine", "Mediterranean", "Portuguese", "Turkish", "Greek", "Hungarian", "Scandinavian", "Catalan", "Castilian", "Tuscan", "Sicilian", "Piedmontese", "Spanish", "Spanish Contemporary", "Swedish", "German", "Irish", "Austrian", "European", "Basque", "Croatian", "Apulian", "Emilian", "Ligurian", "Abruzzo", "Campanian", "Calabrian", "Russian")) ~ "European",
+    Cuisine %in% tolower(c("Shun_Tak", "Pufferfish", "Chinese", "Seafood", "Sushi", "Noodles", "Japanese", "Korean", "Naengmyeon", "Gomtang", "Dwaeji_gukbap", "Southern Thai", "Thai", "Chao_Zhou", "Taizhou", "Taiwanese", "Singaporean", "Asian", "Cantonese", "Indian", "Malaysian", "Tempura", "Beijing", "Shandong", "Sichuan", "Hunanese", "Huaiyang", "Yakitori", "Dumplings", "Filipino", "Fujian", "Dim_Sum", "Teochew", "Vietnamese", "Teppanyaki", "Hang_Zhou", "Duck", "Dongbei", "Unagi_Eel", "Noodles_and_Congee", "Peranakan", "Ningbo", "Shojin", "Jiangzhe", "shanghainese", "zhejiang")) ~ "Asian",
+    Cuisine %in% tolower(c("Californian", "American", "Steakhouse", "Barbecue", "North_American")) ~ "American",
+     Cuisine %in% tolower(c("Brazilian", "Mexican", "Latin_American", "Colombian", "Peruvian", "South_American")) ~ "Latin",
+    Cuisine %in% tolower(c("African")) ~ "African",
+     Cuisine %in% tolower(c("Israeli", "Middle_Eastern", "Emirati", "Lebanese", "Pakistani")) ~ "Middle East",
+    Cuisine %in% c("southern", "traditional", "innovative", "modern", "creative", "cuisine", "contemporary", "seasonal", "country", "cooking", "classic", "international", "fusion", "sharing", "organic", "vegan", "vegetarian", "street", "food", "western", "farm", "to", "table", "and", "regional", "world", "crab", "specialties", "the", "from", "beef", "grills", "home", "influences", "roast", "meats", "marches", "north", "valley") ~ "Misc",
+    TRUE ~ "Other"  # If any cuisines don't fit into the above categories
+  ))        
+
+# Used this to find all cuisines I missed.
+
+michelin_grouping %>%
+  filter(Cuisine_group == "Other") %>%
+  distinct(Cuisine) %>%
+  arrange(Cuisine)
+```
+
+
+```{r}
+# Table showing average price and award for each cuisine. I made it so highest award is at the top, so we can see what cuisine has the highest avg award
+
+cuisines_over_40 <- michelin_1234 %>%
+  count(Cuisine) %>%
+  filter(n > 40)
+
+# Step 2: Filter original data to only include those cuisines with more than 4 occurrences
+michelin_filtered <- michelin_1234 %>%
+  filter(Cuisine %in% cuisines_over_40$Cuisine)
+
+# Step 3: Summarize avg award and price
+michelin1_summary <- michelin_filtered %>%
+  group_by(Cuisine) %>%
+  summarise(
+    avg_award = mean(Award, na.rm = TRUE),
+    avg_price = mean(Price, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  arrange(desc(avg_award))
+
+# Step 4: Style the table
+michelin1_summary %>%
+  knitr::kable("html", caption = "Michelin Restaurants Average Award and Price (Only Cuisines with >40 Restaurants)") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE) %>%
+  column_spec(1, bold = TRUE, color = "white", background = "#0073e6") %>%
+  column_spec(2:3, background = "#f0f0f0") %>%
+  add_header_above(c("Cuisine Info" = 1, "Average Award and Price" = 2))
+
+```
+
+
+```{r}
+
+# Table with top 5 cuisines with the highest count 
+
+table(michelin_1234$Cuisine) 
+
+
+top_5_cuisines <- michelin_1234 %>%
+  count(Cuisine) %>%  
+  arrange(desc(n)) %>% 
+  head(5) 
+
+
+top_5_cuisines %>%
+  kable("html", caption = "Cuisines with highest count") %>%  
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE) %>% 
+  row_spec(0, bold = TRUE, color = "white", background = "black")   
+
+
+```
+
+
+
+
+
+```{r}
+# Graph with cuisine group 
+
+# Count duplicates for Price × Award × Cuisine_group combinations
+plot_data <- michelin_grouping %>%
+  count(Price, Award, Cuisine_group)
+
+# Bubble plot with one bubble per unique combination
+ggplot(plot_data, aes(x = Price, y = Award, size = n, color = Cuisine_group)) +
+  geom_point(alpha = 0.7) +
+  labs(
+    title = "Award vs. Price per Cuisine Group",
+    subtitle = "Bubble Size = Number of Restaurants with Same Award & Price",
+    x = "Price",
+    y = "Award",
+    size = "Number of Restaurants",
+    color = "Cuisine Group"
+  ) +
+  facet_wrap(~ Cuisine_group, scales = "free") +
+  scale_size_continuous(range = c(2, 12)) +
+  scale_color_brewer(palette = "Set1") +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    legend.text = element_text(size = 16),
+      axis.title.y = element_text(size = 15),
+      axis.title.x = element_text(size = 15),
+    legend.title = element_text(size = 16),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.text = element_text(size = 18),
+    plot.title = element_text(size = 30, face = "bold"),
+    plot.subtitle = element_text(size = 14),
+    panel.spacing = unit(1, "lines")
+  )
+
+# Save my graph
+ggsave("plot_cuisine_bubble_plot.png", width = 15, height = 8, units = "in", bg = "white")
+
+
+
+```
+
