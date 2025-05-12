@@ -1,0 +1,123 @@
+---
+title: "Final Project Code"
+author: "Molly Clinton"
+date: "2025-05-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ggplot2)
+library(ggmap)
+library(dplyr)
+library(hexbin) 
+
+data <- michelin_my_maps  
+
+categories <- c("3 Stars", "2 Stars", "1 Star")
+data_filtered <- data %>%
+  filter(Award %in% categories)
+
+world_map <- map_data("world")
+
+ggplot(data_filtered, aes(x = Longitude, y = Latitude)) +
+  geom_map(data = world_map, map = world_map, aes(x = long, y = lat, map_id = region), 
+           color = "gray", fill = "lightgray", size = 0.3) +
+  geom_hex(bins = 100) +
+  scale_fill_gradient(low = "blue", high = "red") +
+  theme_minimal() + 
+  theme(legend.position = "right") + 
+  labs(title = "Michelin Star Locations Density (1, 2, 3 Stars)", 
+       x = "Longitude", y = "Latitude", fill = "Count")
+```
+
+```{r}
+library(dplyr)
+library(randomForest)
+library(ggplot2)
+
+stars2 <- michelin_my_maps %>%
+  filter(!Award %in% c("Selected Restaurants", "Bib Gourmand")) %>%
+  mutate(Award = case_when(
+    grepl("1", Award) ~ "1",
+    grepl("2", Award) ~ "2",
+    grepl("3", Award) ~ "3",
+    TRUE ~ NA_character_
+  )) %>%
+  filter(!is.na(Award))
+
+top_descriptions <- names(sort(table(stars2$Description), decreasing = TRUE)[1:25])
+
+stars2$Description <- as.character(stars2$Description)
+stars2$Description[!stars2$Description %in% top_descriptions] <- "Other"
+stars2$Description <- as.factor(stars2$Description)
+
+stars2$Award <- factor(stars2$Award, levels = c("1", "2", "3"))
+stars2$Price <- nchar(as.character(stars2$Price))
+stars2$Latitude <- round(stars2$Latitude)
+stars2$Longitude <- round(stars2$Longitude)
+stars2$Cuisine <- as.factor(stars2$Cuisine)
+stars2$Description <- as.factor(stars2$Description)
+
+stars2 <- na.omit(stars2)
+
+top_cuisines <- names(sort(table(stars2$Cuisine), decreasing = TRUE)[1:25])
+stars2$Cuisine <- as.character(stars2$Cuisine)
+stars2$Cuisine[!stars2$Cuisine %in% top_cuisines] <- "Other"
+stars2$Cuisine <- as.factor(stars2$Cuisine)
+
+set.seed(123)
+min_n <- min(table(stars2$Award))
+stars2_balanced <- stars2 %>%
+  group_by(Award) %>%
+  sample_n(min_n) %>%
+  ungroup()
+
+rf_model <- randomForest(
+  formula = Award ~ Price + GreenStar + Latitude + Longitude + Cuisine + Description,
+  data = stars2_balanced,
+  ntree = 500
+)
+
+simulated_restaurant <- data.frame(
+  Price = 3,
+  GreenStar = 0,
+  Latitude = 37,
+  Longitude = 15,
+  Cuisine = "Italian",
+  Description = "modern"
+)
+
+if (!simulated_restaurant$Cuisine %in% top_cuisines) {
+  simulated_restaurant$Cuisine <- "Other"
+}
+if (!simulated_restaurant$Description %in% top_descriptions) {
+  simulated_restaurant$Description <- "Other"
+}
+
+simulated_restaurant$Cuisine <- factor(simulated_restaurant$Cuisine, levels = levels(stars2_balanced$Cuisine))
+simulated_restaurant$Description <- factor(simulated_restaurant$Description, levels = levels(stars2_balanced$Description))
+
+simulated_restaurant$PredictedAward <- predict(rf_model, simulated_restaurant)
+
+print(simulated_restaurant$PredictedAward)
+```
+
+```{r}
+probs <- predict(rf_model, simulated_restaurant, type = "prob")
+
+prob_df <- data.frame(
+  Award = colnames(probs),
+  Probability = as.numeric(probs[1, ])
+)
+
+ggplot(prob_df, aes(x = Award, y = Probability, fill = Award)) +
+  geom_col(show.legend = FALSE) +
+  labs(title = "Predicted Probability of Michelin Stars",
+       x = "Number of Stars",
+       y = "Probability") +
+  theme_minimal()
+```
