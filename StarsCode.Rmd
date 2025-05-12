@@ -1,0 +1,205 @@
+---
+title: "StarsCode"
+author: "Paige Galvan"
+date: "2025-05-12"
+output: pdf_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+library(tidyverse)
+library(readxl)
+library(tinytex)
+```
+
+
+
+Cleaning:
+```{r}
+stars <- read.csv("/Users/paigegalvan/Desktop/Stats/472/michelin_my_maps.csv")
+head(stars)
+```
+
+```{r}
+stars2 <- stars %>%
+  mutate(Award = gsub("Stars", "", Award)) %>%
+  mutate(Award = gsub("Star", "", Award)) %>%
+  filter(!Award %in% c("Selected Restaurants", "Bib Gourmand"))
+
+stars2$Price <- as.character(stars2$Price)
+
+stars2$Award <- as.numeric(as.character(stars2$Award))
+
+stars2$Price <- nchar(stars2$Price, type = "chars")
+
+stars2$Latitude <- round(stars2$Latitude)
+stars2$Longitude <- round(stars2$Longitude)
+
+stars2$Cuisine <- as.factor(as.character(stars2$Cuisine))
+stars2$Description <- as.factor(as.character(stars2$Description))
+
+stars2_clean <- stars2
+
+top_cuisines <- names(sort(table(stars2_clean$Cuisine), decreasing = TRUE)[1:25])
+
+stars2_clean$Cuisine <- as.character(stars2_clean$Cuisine)
+stars2_clean$Cuisine[!stars2_clean$Cuisine %in% top_cuisines] <- "Other"
+stars2_clean$Cuisine <- as.factor(stars2_clean$Cuisine)
+
+print(stars2_clean)
+```
+
+Original Random Forest Model:
+```{r, random forest interactions}
+library(randomForest)
+library(caret)
+
+rf_model <- randomForest(Award ~ Price + GreenStar, data = stars2_clean)
+
+print(rf_model)
+
+rf_model_interactions <- randomForest(Award ~ Price + GreenStar + Longitude + Latitude + Cuisine,
+                                      data = stars2_clean,
+                                      importance = TRUE)
+
+print(rf_model_interactions)
+
+randomForest::importance(rf_model_interactions)
+```
+
+Error Plot and Importance Graph:
+```{r, visualization}
+library(randomForest)
+library(ggplot2)
+library(caret)
+
+importance_data <- randomForest::importance(rf_model_interactions)
+
+importance_df <- data.frame(
+  Feature = rownames(importance_data),
+  Importance = importance_data[, 1]
+)
+
+ggplot(importance_df, aes(x = reorder(Feature, Importance), y = Importance)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  coord_flip() + 
+  labs(title = "Feature Importance", x = "Features", y = "Importance") +
+  theme_minimal()
+
+plot(rf_model_interactions) 
+```
+
+Undersampling Model and Confusion Matrix:
+```{r, undersampling confusion matrix}
+train_index <- createDataPartition(stars2_clean$Award, p = 0.7, list = FALSE)
+
+train_data <- stars2_clean[train_index, ]
+test_data <- stars2_clean[-train_index, ]
+
+train_data$Award <- factor(train_data$Award)
+test_data$Award <- factor(test_data$Award)
+
+star_counts <- table(train_data$Award)
+min_class_size <- min(star_counts)
+
+category_1_star <- train_data[train_data$Award == 1, ]
+category_2_stars <- train_data[train_data$Award == 2, ]
+category_3_stars <- train_data[train_data$Award == 3, ]
+
+category_1_star_undersampled <- category_1_star[sample(1:nrow(category_1_star),
+                                                       size =
+                                                  min(nrow(category_1_star), 
+                                                            min_class_size), 
+                                                      replace = FALSE), ]
+
+train_data_balanced <- rbind(category_1_star_undersampled, category_2_stars, category_3_stars)
+
+table(train_data_balanced$Award)
+
+rf_model2_balanced <- randomForest(Award ~ Price + Cuisine + GreenStar + Longitude + Latitude, data = train_data_balanced)
+
+rf_pred_train_balanced <- predict(rf_model2_balanced, train_data_balanced)
+
+rf_pred_train_balanced <- factor(rf_pred_train_balanced, levels = levels(train_data_balanced$Award))
+
+confusion_matrix_train_balanced <- confusionMatrix(rf_pred_train_balanced, train_data_balanced$Award)
+print(confusion_matrix_train_balanced)
+
+rf_pred_test_balanced <- predict(rf_model2_balanced, test_data)
+
+rf_pred_test_balanced <- factor(rf_pred_test_balanced, levels = levels(test_data$Award))
+
+confusion_matrix_test_balanced <- confusionMatrix(rf_pred_test_balanced, test_data$Award)
+print(confusion_matrix_test_balanced)
+
+confusion_matrix_train_plot <- ggplot(as.data.frame(confusion_matrix_train_balanced$table), aes(x = Reference, y = Prediction)) +
+  geom_tile(aes(fill = Freq), color = "white") +
+  geom_text(aes(label = Freq), vjust = 1) +
+  scale_fill_gradient(low = "white", high = "blue") +
+  labs(title = "Training Set Confusion Matrix", x = "True Values", y = "Predicted Values") +
+  theme_minimal()
+
+confusion_matrix_test_plot <- ggplot(as.data.frame(confusion_matrix_test_balanced$table), aes(x = Reference, y = Prediction)) +
+  geom_tile(aes(fill = Freq), color = "white") +
+  geom_text(aes(label = Freq), vjust = 1) +
+  scale_fill_gradient(low = "white", high = "blue") +
+  labs(title = "Test Set Confusion Matrix", x = "True Values", y = "Predicted Values") +
+  theme_minimal()
+
+library(gridExtra)
+grid.arrange(confusion_matrix_train_plot, confusion_matrix_test_plot, ncol = 2)
+```
+
+Influence Matrix:
+```{r}
+library(ggplot2)
+library(dplyr)
+
+influence_df <- data.frame(
+  Star_Level = factor(c(
+    rep("1 Star", 6), 
+    rep("2 Stars", 6), 
+    rep("3 Stars", 6)
+  ), levels = c("1 Star", "2 Stars", "3 Stars")),
+  Feature = rep(c("Price", "Green Star", "Latitude", "Longitude", "Cuisine", "Description"), 3),
+  Influence = c(
+    "Medium", "Low", "Minimal", "High", "Noticeable", "Low",        # 1 Star
+    "High", "Medium", "Noticeable", "Very High", "High", "Medium",  # 2 Stars
+    "Noticeable", "Very High", "Low", "Medium", "Very High", "High" # 3 Stars
+  )
+)
+
+influence_df <- influence_df %>%
+  mutate(Influence_Level = case_when(
+    Influence == "Minimal" ~ 1,
+    Influence == "Low" ~ 2,
+    Influence == "Noticeable" ~ 3,
+    Influence == "Medium" ~ 4,
+    Influence == "High" ~ 5,
+    Influence == "Very High" ~ 6
+  ))
+
+influence_colors <- c("1" = "#f0f0f0",   
+                      "2" = "#fde0dd",   
+                      "3" = "#fa9fb5",   
+                      "4" = "#f768a1",   
+                      "5" = "#c51b8a",   
+                      "6" = "#7a0163")     
+
+ggplot(influence_df, aes(x = Feature, y = Star_Level, fill = as.factor(Influence_Level))) +
+  geom_tile(color = "white", linewidth = 0.6) +
+  scale_fill_manual(values = influence_colors,
+                    labels = c("Minimal", "Low", "Noticeable", "Medium", "High", "Very High"),
+                    name = "Influence") +
+  geom_text(aes(label = Influence), color = "black", size = 4) +
+  labs(title = "Feature Influence on Michelin Star Prediction",
+       x = "Feature", y = "Star Level") +
+  theme_minimal(base_size = 13) +
+  theme(panel.grid = element_blank(),
+        axis.text.x = element_text(angle = 15, hjust = 1))
+```
+
