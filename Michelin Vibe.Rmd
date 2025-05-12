@@ -1,0 +1,200 @@
+---
+title: "Michelin Vibe"
+author: "Kelsey Britton"
+date: "2025-03-26"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup}
+
+library(tidyverse)
+library(tidytext)
+library(topicmodels)
+library(stringr)
+library(dplyr)
+library(wordcloud)
+library(ggplot2)
+library(knitr)
+
+
+michelin <- read.csv("michelin_my_maps.csv")
+
+```
+
+```{r clean}
+michelin <- michelin %>%
+  mutate(doc_id = row_number(),
+         Description = str_to_lower(Description)) %>%
+  unnest_tokens(word, Description) %>%
+  anti_join(stop_words, by = "word")
+
+```
+
+```{r wordcloud}
+word_freq <- michelin %>% 
+  count(word, sort = TRUE)
+
+wordcloud(words = word_freq$word, freq = word_freq$n, max.words = 50, random.order = FALSE, colors = brewer.pal(10, "Reds"))
+
+```
+```{r clean2}
+
+custom_stopwords <- c("dishes", "menu", "chef", "ingredients", "set", "served", "menus", "cooking", "fine", "sauce", "la", "list", "pork", "fish", "kitchen")
+
+cleaned <- michelin %>%
+  filter(!word %in% custom_stopwords)
+
+head(michelin, 10)
+
+```
+
+```{r wordcloud2}
+word_freq <- michelin %>% 
+  count(word, sort = TRUE)
+
+wordcloud(words = word_freq$word, freq = word_freq$n, max.words = 50, random.order = FALSE)
+
+```
+```{r clean3}
+
+custom_stopwords <- c("guests", "delicious", "features", "seasonal", "selection", "restaurant", "creative","japanese", "home", "flavour", "setting", "wine", "bar", "friendly", "french", "team", "classic", "quality", "quality", "loacal", "meat", "fried", "fresh", "cuisine", "run", "de", "experience", "food", "dining", "house", "rice", "tasting", "style", "terrace", "beef", "traditional", "produce", "seafood", "diners", "carte", "hotel", "interior", "offers", "à")
+
+cleaned <- cleaned %>%
+  filter(!word %in% custom_stopwords)
+
+```
+
+```{r wordcloud3}
+word_freq <- michelin %>% 
+  count(word, sort = TRUE)
+
+wordcloud(words = word_freq$word, freq = word_freq$n, max.words = 50, random.order = FALSE)
+
+```
+
+```{r clean4}
+
+custom_stopwords <- c("including", "regional", "prepared", "cooked", "chicken", "excellent", "inspired", "wood", "vegetables", "charming", "options", "located","atmosphere", "grilled", "mediterranean", "spot", "italian", "sweet", "floor", "tables", "table", "focus", "include", "cream", "recipe", "enjoy", "boats", "perfect", "centre", "time", "red", "dish", "feel", "local", "top", "serves", "owner", "flavours", "space", "service", "graden", "sea", "culinary", "wines", "soup")
+
+cleaned <- cleaned %>%
+  filter(!word %in% custom_stopwords)
+
+```
+
+```{r wordcloud4}
+word_freq <- michelin %>% 
+  count(word, sort = TRUE)
+
+wordcloud(words = word_freq$word, freq = word_freq$n, max.words = 50, random.order = FALSE)
+
+```
+
+
+```{r wordbank}
+
+vibe_word_bank <- read.csv("grouped_vibe.csv", stringsAsFactors = FALSE)
+
+
+michelin <- michelin %>%
+  inner_join(vibe_word_bank, by = "word")
+
+head(michelin, 100)
+```
+```{r vibeplot}
+michelin %>%
+  count(vibe) %>%
+  ggplot(aes(x = reorder(vibe, n), y = n, fill = vibe)) +
+  geom_col(show.legend = FALSE) +
+  coord_flip() +
+  labs(title = "Most Common Vibes in Michelin Descriptions",
+       x = "Vibe", y = "Frequency")
+```
+
+
+
+```{r bankcloud}
+set.seed(321)
+word_freq <- michelin %>% 
+  count(word, sort = TRUE)
+
+wordcloud(words = word_freq$word, freq = word_freq$n, max.words = 50, random.order = FALSE, scale=c(2.5,0.25), random.color = F, colors= brewer.pal(3, "Dark2"))
+
+```
+```{r graphs}
+vibe_per_restaurant <- michelin %>%
+  group_by(Name, vibe) %>%
+  summarise(vibe_count = n(), .groups = "drop")
+
+restaurant_awards_clean <- michelin %>%
+  select(Name, Award) %>%
+  distinct(Name, .keep_all = TRUE)  
+
+
+# Join the award info to the vibe table
+vibe_awards <- vibe_per_restaurant %>%
+  left_join(restaurant_awards_clean, by = "Name")
+vibe_awards <- vibe_awards %>%
+  mutate(Award = case_when(
+    grepl("3", Award) ~ "3 Stars",
+    grepl("2", Award) ~ "2 Stars",
+    grepl("1", Award) ~ "1 Star",
+    grepl("Bib", Award) ~ "Bib Gourmand",
+    Award == "" | is.na(Award) ~ "No Award",
+    TRUE ~ Award
+  ))
+
+vibe_awards_filtered <- vibe_awards %>%
+  filter(!Award %in% c("Bib Gourmand", "Selected Restaurants", "No Award"))
+library(ggplot2)
+
+vibe_awards_filtered %>%
+  group_by(Award, vibe) %>%
+  summarise(total = sum(vibe_count), .groups = "drop") %>%
+  ggplot(aes(x = vibe, y = total, fill = Award)) +
+  geom_col(position = "dodge") +
+  labs(title = "Vibe Frequencies by Michelin Award", x = "Vibe", y = "Word Count") +
+  theme_minimal() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+vibe_awards_filtered %>%
+  group_by(Award, vibe) %>%
+  summarise(total = sum(vibe_count), .groups = "drop") %>%
+  group_by(Award) %>%
+  mutate(prop = total / sum(total)) %>%
+  ggplot(aes(x = Award, y = prop, fill = vibe)) +
+  geom_col(position = "fill") +
+  labs(title = "Proportion of Vibes by Rating",
+       y = "Proportion", x = "Michelin Rating") +
+  theme_minimal()
+
+```
+```{r vibekable}
+library(knitr)
+
+vibe_word_bank %>%
+  group_by(vibe) %>%
+  summarise(words = paste(word, collapse = ", ")) %>%
+  kable(caption = "Grouped Vibe Words")
+```
+```{r stackedbar}
+
+vibestarprops <- vibe_awards_filtered %>%
+  group_by(vibe, Award) %>%
+  summarise(total = sum(vibe_count), .groups = "drop") %>%
+  group_by(vibe) %>%
+  mutate(prop = total / sum(total))
+
+ggplot(vibestarprops, aes(x = reorder(vibe, -prop), y = prop, fill = Award)) +
+  geom_col() +
+  labs(
+    title = "Michelin Star Distribution Within Each Vibe",
+    x = "Vibe Category",
+    y = "Proportion of Star Ratings"
+  ) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
